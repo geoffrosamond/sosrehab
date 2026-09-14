@@ -1,0 +1,10 @@
+run = "npm run dev"
+entrypoint = "src/routes/index.tsx"
+hidden = [".config", "node_modules", ".tanstack", ".vercel"]
+
+[deployment]
+run = ["sh", "-c", "npm run dev"]
+
+[[ports]]
+localPort = 8080
+externalPort = 80

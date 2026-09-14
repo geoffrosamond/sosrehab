@@ -1,5 +1,5 @@
 {
-  "name": "app-builder-workspace",
+  "name": "sosrehab",
   "private": true,
   "sideEffects": false,
   "type": "module",
@@ -8,6 +8,7 @@
   },
   "scripts": {
     "dev": "node scripts/with-app-env.mjs vite dev --host 0.0.0.0 --port 8080",
+    "start": "node scripts/with-app-env.mjs vite dev --host 0.0.0.0 --port 8080",
     "build": "node scripts/with-app-env.mjs vite build && npm run db:migrate",
     "db:migrate": "node scripts/migrate.mjs",
     "build:dev": "node scripts/with-app-env.mjs vite build --mode development",
@@ -72,6 +73,9 @@
     "vaul": "^1.1.2",
     "zod": "^4.4.0",
     "zustand": "^5.0.0"
+  },
+  "engines": {
+    "node": ">=20.19"
   },
   "devDependencies": {
     "@eslint/js": "^9.20.0",
