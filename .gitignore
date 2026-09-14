@@ -4,6 +4,7 @@ node_modules/
 .grok/
 artifacts/
 screenshots/
+attachments/
 dist/
 .output/
 .nitro/
