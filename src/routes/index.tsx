@@ -152,7 +152,7 @@ function Home() {
               params={{ slug: p.slug }}
               className="overflow-hidden rounded-xl border border-line bg-surface"
             >
-              <img src={p.image} alt={p.name} className="aspect-3/4 w-full object-cover" />
+              <img src={p.image} alt={p.name} className="aspect-3/4 w-full object-cover object-top" />
               <div className="p-4">
                 <p className="font-display text-lg">{p.name}</p>
                 <p className="text-sm text-muted">{p.role.split(",")[0]}</p>
