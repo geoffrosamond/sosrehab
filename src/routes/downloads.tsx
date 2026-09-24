@@ -3,8 +3,16 @@ import { useState, type FormEvent } from "react";
 import { SiteLayout } from "@/components/site/layout";
 import { Button } from "@/components/ui/button";
 import { services, site } from "@/lib/site";
+import { pageHead } from "@/lib/site-metadata";
 
-export const Route = createFileRoute("/downloads")({ component: ReferralPage });
+export const Route = createFileRoute("/downloads")({
+  head: () => pageHead(
+    "Workplace Rehabilitation Referral | Sydney Occupational Services",
+    "Complete and download a workplace rehabilitation referral for Sydney Occupational Services. Email or fax the form for NSW return-to-work support.",
+    "/downloads",
+  ),
+  component: ReferralPage,
+});
 
 function ReferralPage() {
   const [sent, setSent] = useState(false);

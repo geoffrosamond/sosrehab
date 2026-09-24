@@ -38,6 +38,7 @@ export type GrokHeadContext = {
   creator?: string;
   creatorId?: string;
   host?: string | null;
+  pathname?: string;
   cwd?: string;
   site?: OgSite;
 };
@@ -49,6 +50,8 @@ export declare function customOgAssetPath(cwd?: string): string;
 export declare function resolveOgCardAsset(site?: OgSite, cwd?: string): string;
 export declare function ogServiceUrl(): string;
 export declare function titleFromDocument(html: string): string;
+export declare function descriptionFromDocument(html: string): string;
+export declare function publicPagePath(pathname: string): string;
 export declare function resolveOgTitle(
   site?: OgSite,
   appName?: string,
@@ -61,6 +64,8 @@ export declare function grokOgHeadTags(ctx?: {
   appName?: string;
   site?: OgSite;
   documentTitle?: string;
+  documentDescription?: string;
+  pathname?: string;
   cwd?: string;
 }): string[];
 export declare function stripShareMetaTags(html: string): string;

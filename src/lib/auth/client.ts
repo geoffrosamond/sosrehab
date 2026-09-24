@@ -1,6 +1,7 @@
 import { genericOAuthClient } from "better-auth/client/plugins";
 import { createAuthClient } from "better-auth/react";
 import { runPreSignInSignOut, runSignOut } from "../../../scripts/sign-out-plan.mjs";
+import { cancelSignOut, runWithSignOutTransition } from "./auth-transition-store";
 import { GROK_PROVIDERS } from "./providers";
 
 /**
@@ -129,7 +130,8 @@ export async function signIn(
     // Avoid a full iframe reload when we're already on the destination — that
     // reload was the slow "still loading after the popup closed" feeling.
     try {
-      await authClient.getSession();
+      await authClient.$store.atoms.session.get().refetch();
+      if (authClient.$store.atoms.session.get().data?.user) cancelSignOut();
     } catch {
       /* session store will recover on next useSession fetch */
     }
@@ -218,19 +220,34 @@ function waitForPopupToken(popup: Window): Promise<string | null> {
  * a hand-rolled control must catch it and let the visitor retry. In the live
  * preview the local clear is sufficient, so it always resolves.
  */
-export async function signOut(redirectTo = "/"): Promise<void> {
-  await runSignOut({
-    livePreview: inLivePreview(),
-    hasBearer: Boolean(getBearerToken()),
-    // Better Auth resolves with `{ error }` instead of rejecting, so surface a
-    // failed response as a rejection for the sequence to act on.
-    requestSignOut: async () => {
-      const { error } = await authClient.signOut();
-      if (error) throw new Error(error.message ?? "Sign-out failed");
+export function signOut(redirectTo = "/"): Promise<void> {
+  return runWithSignOutTransition(
+    () =>
+      runSignOut({
+        livePreview: inLivePreview(),
+        hasBearer: Boolean(getBearerToken()),
+        // Better Auth resolves with `{ error }` instead of rejecting, so surface a
+        // failed response as a rejection for the sequence to act on.
+        requestSignOut: async () => {
+          const { error } = await authClient.signOut();
+          if (error) throw new Error(error.message ?? "Sign-out failed");
+        },
+        clearToken: () => setBearerToken(null),
+        redirect: () => {
+          window.location.href = redirectTo;
+        },
+      }),
+    async () => {
+      // Bypass the deployed cookie cache: a cached session is not evidence
+      // that the visitor is still signed in after the sign-out response.
+      // Refetch the session store used by useSession, so restoring access
+      // does not expose the pre-sign-out snapshot or a stale null session.
+      await authClient.$store.atoms.session.get().refetch({
+        query: { disableCookieCache: true },
+      });
+      const { data, error } = authClient.$store.atoms.session.get();
+      if (error) throw new Error(error.message ?? "Session check failed");
+      return Boolean(data?.user);
     },
-    clearToken: () => setBearerToken(null),
-    redirect: () => {
-      window.location.href = redirectTo;
-    },
-  });
+  );
 }

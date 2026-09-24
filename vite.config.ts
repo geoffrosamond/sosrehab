@@ -11,6 +11,8 @@ import { grokPwaPlugin } from "./scripts/grok-pwa-plugin.mjs";
 // @ts-expect-error JS plugin alongside the TS vite config
 import { appEnvPlugin } from "./scripts/app-env-plugin.mjs";
 import { isMigrationFile } from "./scripts/migration-plan.mjs";
+import { resolvePublicHost } from "./scripts/grok-pwa-shared.mjs";
+import { renderSitemap } from "./src/lib/sitemap.ts";
 
 /** The files `src/lib/db.ts` globs — same directory, same non-recursive scope. */
 function hasGlobbedMigrations(root: string): boolean {
@@ -142,13 +144,42 @@ function authPopupPlugin(): Plugin {
   };
 }
 
-// `0.0.0.0:8080` is the live-preview contract — don't change host/port.
+/** Serve the same sitemap in development/preview as the deployed Nitro server. */
+function sitemapPlugin(): Plugin {
+  const serve = (server: { middlewares: { use: (handler: (req: import("node:http").IncomingMessage, res: import("node:http").ServerResponse, next: () => void) => void) => void } }) => {
+    server.middlewares.use((req, res, next) => {
+      if ((req.url ?? "").split("?", 1)[0] !== "/sitemap.xml") return next();
+      if (req.method !== "GET" && req.method !== "HEAD") return next();
+      const host = resolvePublicHost(req.headers["x-forwarded-host"] ?? req.headers.host);
+      if (!host) {
+        res.statusCode = 503;
+        res.end("Public hostname unavailable");
+        return;
+      }
+      res.setHeader("content-type", "application/xml; charset=utf-8");
+      res.setHeader("cache-control", "public, max-age=3600");
+      res.end(req.method === "HEAD" ? undefined : renderSitemap(host));
+    });
+  };
+  return {
+    name: "site:sitemap",
+    configureServer: serve,
+    configurePreviewServer: serve,
+  };
+}
+
+// Replit proxies the development server through port 5000.
 // The dev server starts once `src/router.tsx` and `src/routes/` exist — see
 // AGENTS.md § "First scaffold".
 export default defineConfig(({ command, isPreview }) => ({
+  build: {
+    // Consumed by scripts/check-bundle-size.mjs after production builds.
+    manifest: true,
+  },
   server: {
     host: "0.0.0.0",
-    port: 8080,
+    port: 5000,
+    allowedHosts: true,
     strictPort: true,
   },
   preview: {
@@ -159,6 +190,7 @@ export default defineConfig(({ command, isPreview }) => ({
   resolve: { tsconfigPaths: true },
   plugins: [
     pgliteBootstrapPlugin(),
+    sitemapPlugin(),
     // Before tanstackStart so /auth/popup never falls through to the SPA.
     authPopupPlugin(),
     // Dev-only /__app-env, read by scripts/check-auth-invariant.mjs.
@@ -170,7 +202,7 @@ export default defineConfig(({ command, isPreview }) => ({
     ...(command === "build" || isPreview
       ? [
           nitro({
-            preset: "vercel",
+            preset: "node-server",
             // Auto-registers server/middleware/* (the PWA install page +
             // manifest + head-tag middleware). Nitro v3 defaults serverDir to
             // false, so removing this silently unwires /?install=1 on deploys.

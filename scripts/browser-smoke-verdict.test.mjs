@@ -12,6 +12,8 @@ import {
   normalizeBodyText,
   normalizedBodyTextHash,
   parseSmokeArgs,
+  publicPathsFromSitemap,
+  startupJavaScriptVerdict,
 } from "./browser-smoke-verdict.mjs";
 
 const TEMPLATE_ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
@@ -371,21 +373,159 @@ test("exitCodeFor: no viewport data is a failure", () => {
   assert.equal(exitCodeFor(undefined), 1);
 });
 
+test("startup JavaScript records requested bytes within budget", () => {
+  const result = startupJavaScriptVerdict(
+    [
+      { file: "/assets/index.js", bytes: 100 },
+      { file: "/assets/index.css", bytes: 999 },
+      { file: "/assets/index-route.js", bytes: 20 },
+    ],
+    {
+      eagerChunks: [{ file: "assets/index.js" }],
+      routeChunks: [{ file: "assets/index-route.js", source: "src/routes/index.tsx" }],
+    },
+    150,
+  );
+  assert.equal(result.bytes, 120);
+  assert.deepEqual(result.failures, []);
+  assert.deepEqual(
+    result.requests.map(({ file }) => file),
+    ["assets/index-route.js", "assets/index.js"],
+  );
+});
+
+test("startup JavaScript fails clearly for eager lazy routes and excessive bytes", () => {
+  const result = startupJavaScriptVerdict(
+    [
+      { file: "/assets/index.js", bytes: 100 },
+      { file: "/assets/contact.js", bytes: 51 },
+    ],
+    {
+      eagerChunks: [{ file: "assets/index.js" }],
+      routeChunks: [{ file: "assets/contact.js", source: "src/routes/contact.tsx" }],
+    },
+    150,
+  );
+  assert.equal(result.failures.length, 2);
+  assert.match(result.failures[0], /151 B|0\.1 KiB|exceeds/);
+  assert.match(result.failures[1], /src\/routes\/contact\.tsx.*assets\/contact\.js/);
+  assert.equal(exitCodeFor(verdict().viewports, result), 3);
+});
+
+test("sitemap enumerates each public URL once in a deterministic order", () => {
+  const xml = `<urlset>
+    <url><loc>http://127.0.0.1:8081/team/greg</loc></url>
+    <url><loc>http://127.0.0.1:8081/</loc></url>
+    <url><loc>http://127.0.0.1:8081/contact</loc></url>
+    <url><loc>http://127.0.0.1:8081/contact</loc></url>
+  </urlset>`;
+  assert.deepEqual(publicPathsFromSitemap(xml, "http://127.0.0.1:8081/"), [
+    "/",
+    "/contact",
+    "/team/greg",
+  ]);
+  assert.deepEqual(
+    publicPathsFromSitemap(
+      xml.replaceAll("http://127.0.0.1:8081", "https://smoke.example.org"),
+      "http://127.0.0.1:8081/",
+    ),
+    ["/", "/contact", "/team/greg"],
+  );
+  assert.throws(() => publicPathsFromSitemap("<urlset/>", "http://127.0.0.1:8081/"), /home page/);
+  assert.throws(
+    () => publicPathsFromSitemap(xml.replace("127.0.0.1", "example.com"), "http://127.0.0.1:8081/"),
+    /non-public URL/,
+  );
+});
+
+test("each route permits only its own manifest chunk, including dynamic detail URLs", () => {
+  const bundle = {
+    eagerChunks: [{ file: "assets/entry.js" }],
+    routeChunks: [
+      { file: "assets/home.js", source: "src/routes/index.tsx?tsr-split=component" },
+      { file: "assets/contact.js", source: "src/routes/contact.tsx?tsr-split=component" },
+      { file: "assets/team.js", source: "src/routes/team.tsx?tsr-split=component" },
+      { file: "assets/team-detail.js", source: "src/routes/team.$slug.tsx?tsr-split=component" },
+      {
+        file: "assets/services-detail.js",
+        source: "src/routes/services.$slug.tsx?tsr-split=component",
+      },
+    ],
+  };
+  const requests = [
+    { file: "/assets/entry.js", bytes: 40 },
+    { file: "/assets/team.js", bytes: 5 },
+    { file: "/assets/team-detail.js", bytes: 20 },
+  ];
+  assert.deepEqual(startupJavaScriptVerdict(requests, bundle, 100, "/team/greg").failures, []);
+  const home = startupJavaScriptVerdict(requests, bundle, 100, "/");
+  const contact = startupJavaScriptVerdict(requests, bundle, 50, "/contact");
+  assert.match(home.failures.join(" "), /^\/: unexpected lazy route.*team\.\$slug/);
+  assert.match(contact.failures.join(" "), /\/contact: startup JavaScript.*exceeds/);
+  assert.match(contact.failures.join(" "), /\/contact: unexpected lazy route.*team\.\$slug/);
+  assert.deepEqual(
+    startupJavaScriptVerdict(
+      [...requests, { file: "/assets/contact.js", bytes: 1 }],
+      bundle,
+      100,
+      "/team/greg",
+    ).unexpectedLazyRoutes.map(({ source }) => source),
+    ["src/routes/contact.tsx?tsr-split=component"],
+  );
+  assert.equal(
+    exitCodeFor(
+      verdict().viewports,
+      { failures: [] },
+      {
+        "/": { status: 200, startupJavaScript: { failures: [] } },
+        "/contact": { status: 200, startupJavaScript: contact },
+      },
+    ),
+    3,
+  );
+});
+
+test("route navigation and page errors fail the smoke even if the home page passes", () => {
+  assert.equal(
+    exitCodeFor(
+      verdict().viewports,
+      { failures: [] },
+      {
+        "/team/greg": { status: 404, consoleErrors: [], pageErrors: [] },
+      },
+    ),
+    1,
+  );
+  assert.equal(
+    exitCodeFor(
+      verdict().viewports,
+      { failures: [] },
+      {
+        "/team/greg": { status: 200, consoleErrors: [], pageErrors: ["broken"] },
+      },
+    ),
+    2,
+  );
+});
+
 test("browser-smoke wires the guard and verdict helpers", () => {
   const src = readFileSync(join(TEMPLATE_ROOT, "scripts/browser-smoke.mjs"), "utf8");
   assert.match(src, /from "\.\/browser-guard\.mjs"/);
   assert.match(src, /from "\.\/browser-smoke-verdict\.mjs"/);
   assert.match(src, /const args = parseSmokeArgs\(process\.argv\.slice\(2\), process\.env\)/);
   assert.match(src, /const url = checkedUrl\(args\.url\)/);
-  assert.match(src, /const outPng = checkedOutputPath\(args\.outPng, \["\/workspace"\]\)/);
-  assert.match(src, /const mobilePng = checkedOutputPath\(derived\.mobilePng, \["\/workspace"\]\)/);
-  assert.match(src, /const outJson = checkedOutputPath\(derived\.verdictJson, \["\/workspace"\]/);
-  assert.match(src, /checkedOutputPath\(realpathSync\(args\.baseline\), \["\/workspace"\]/);
+  assert.match(src, /const allowedOutputDirs = \["\/workspace", ROOT\]/);
+  assert.match(src, /const outPng = checkedOutputPath\(args\.outPng, allowedOutputDirs\)/);
+  assert.match(src, /const mobilePng = checkedOutputPath\(derived\.mobilePng, allowedOutputDirs\)/);
+  assert.match(src, /const outJson = checkedOutputPath\(derived\.verdictJson, allowedOutputDirs/);
+  assert.match(src, /checkedOutputPath\(realpathSync\(args\.baseline\), allowedOutputDirs/);
   assert.match(src, /baselinePath === outJson/);
   assert.match(src, /normalizedBodyTextHash\(/);
   assert.match(src, /bodyTextPrefix\(/);
   assert.match(src, /baselineComparison\(/);
-  assert.match(src, /process\.exitCode = exitCodeFor\(viewports\)/);
+  assert.match(src, /process\.exitCode = exitCodeFor\(viewports, startupJavaScript, routes\)/);
+  assert.match(src, /page\.on\("response"/);
+  assert.match(src, /response\.body\(\)/);
   assert.match(src, /waitUntil: "domcontentloaded"/);
   assert.doesNotMatch(
     src,

@@ -1,9 +1,21 @@
 import { createFileRoute, Link, notFound } from "@tanstack/react-router";
 import { ArrowLeft } from "lucide-react";
 import { SiteLayout } from "@/components/site/layout";
+import { ResponsiveImage } from "@/components/site/responsive-image";
 import { team } from "@/lib/site";
+import { pageHead } from "@/lib/site-metadata";
 
 export const Route = createFileRoute("/team/$slug")({
+  head: ({ params }) => {
+    const person = team.find((item) => item.slug === params.slug);
+    return person
+      ? pageHead(
+          `${person.name} — ${person.role} | Sydney Occupational Services`,
+          `Meet ${person.name}, ${person.role} at Sydney Occupational Services. Learn about their experience in workplace rehabilitation and occupational therapy in NSW.`,
+          `/team/${encodeURIComponent(person.slug)}`,
+        )
+      : {};
+  },
   component: PersonPage,
 });
 
@@ -22,8 +34,9 @@ function PersonPage() {
           >
             <ArrowLeft className="size-4" /> Team
           </Link>
-          <img
+          <ResponsiveImage
             src={person.image}
+            sizes="(min-width: 1024px) 450px, 100vw"
             alt={person.name}
             className="mt-6 aspect-3/4 w-full rounded-xl object-cover object-top"
           />

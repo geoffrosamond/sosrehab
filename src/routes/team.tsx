@@ -1,8 +1,17 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { SiteLayout } from "@/components/site/layout";
+import { ResponsiveImage } from "@/components/site/responsive-image";
 import { team } from "@/lib/site";
+import { pageHead } from "@/lib/site-metadata";
 
-export const Route = createFileRoute("/team")({ component: TeamPage });
+export const Route = createFileRoute("/team")({
+  head: () => pageHead(
+    "Rehabilitation Consultants & Directors | Sydney Occupational Services",
+    "Meet the directors and senior rehabilitation consultants at Sydney Occupational Services, delivering hands-on return-to-work support across NSW.",
+    "/team",
+  ),
+  component: TeamPage,
+});
 
 function TeamPage() {
   return (
@@ -25,8 +34,9 @@ function TeamPage() {
               params={{ slug: p.slug }}
               className="overflow-hidden rounded-xl border border-line bg-surface shadow-soft"
             >
-              <img
+              <ResponsiveImage
                 src={p.image}
+                sizes="(min-width: 768px) 540px, 100vw"
                 alt={p.name}
                 className="aspect-4/5 w-full object-cover object-top sm:aspect-4/3"
               />

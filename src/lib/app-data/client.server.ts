@@ -257,6 +257,36 @@ function crossSiteBlockedResult(): CallToolResult | null {
 
 const FAILURE_MEMO_TTL_MS = 5_000;
 const failureMemo = new Map<string, { at: number; result: CallToolResult }>();
+let failureMemoCleanupTimer: ReturnType<typeof setTimeout> | null = null;
+
+function sweepExpiredFailureMemo(now: number): void {
+  for (const [key, entry] of failureMemo) {
+    if (now - entry.at > FAILURE_MEMO_TTL_MS) failureMemo.delete(key);
+  }
+}
+
+function scheduleFailureMemoCleanup(): void {
+  if (failureMemo.size === 0) {
+    if (failureMemoCleanupTimer !== null) {
+      clearTimeout(failureMemoCleanupTimer);
+      failureMemoCleanupTimer = null;
+    }
+    return;
+  }
+  if (failureMemoCleanupTimer !== null) return;
+
+  let nextExpiryAt = Number.POSITIVE_INFINITY;
+  for (const entry of failureMemo.values()) {
+    nextExpiryAt = Math.min(nextExpiryAt, entry.at + FAILURE_MEMO_TTL_MS + 1);
+  }
+  const delay = Math.max(0, nextExpiryAt - Date.now());
+  failureMemoCleanupTimer = setTimeout(() => {
+    failureMemoCleanupTimer = null;
+    sweepExpiredFailureMemo(Date.now());
+    scheduleFailureMemoCleanup();
+  }, delay);
+  failureMemoCleanupTimer.unref?.();
+}
 
 function tokenIdentityKey(token: string): string {
   const payload = token.split(".")[1];
@@ -278,7 +308,9 @@ function tokenIdentityKey(token: string): string {
             .digest("base64url");
         }
       }
-    } catch {}
+    } catch {
+      // Malformed claims are treated as an opaque token.
+    }
   }
   return createHash("sha256").update(token).digest("base64url");
 }
@@ -289,6 +321,7 @@ function memoizedFailure(key: string | null): CallToolResult | null {
   if (!hit) return null;
   if (Date.now() - hit.at > FAILURE_MEMO_TTL_MS) {
     failureMemo.delete(key);
+    scheduleFailureMemoCleanup();
     return null;
   }
   return hit.result;
@@ -300,10 +333,9 @@ function memoizeFailure(
 ): CallToolResult {
   if (!key) return result;
   const now = Date.now();
-  for (const [staleKey, entry] of failureMemo) {
-    if (now - entry.at > FAILURE_MEMO_TTL_MS) failureMemo.delete(staleKey);
-  }
+  sweepExpiredFailureMemo(now);
   failureMemo.set(key, { at: now, result });
+  scheduleFailureMemoCleanup();
   return result;
 }
 

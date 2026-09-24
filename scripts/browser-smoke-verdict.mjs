@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { STARTUP_CLIENT_BUDGET_BYTES } from "./check-bundle-size.mjs";
 export function normalizeBodyText(text) {
   return String(text ?? "")
     .replace(/\s+/g, " ")
@@ -42,6 +43,85 @@ export function parseSmokeArgs(argv, env = {}) {
 export function derivedPaths(outPng) {
   const base = outPng.replace(/\.png$/i, "");
   return { mobilePng: `${base}-mobile.png`, verdictJson: `${base}.json` };
+}
+
+export function publicPathsFromSitemap(xml, baseUrl) {
+  const localOrigin = new URL(baseUrl).origin;
+  let sitemapOrigin;
+  const paths = new Set();
+  for (const match of String(xml).matchAll(/<loc>\s*([^<]+)\s*<\/loc>/g)) {
+    const location = match[1].trim().replaceAll("&amp;", "&");
+    const url = new URL(location);
+    // The preview generates canonical HTTPS links for its public hostname,
+    // even when the smoke itself navigates through a local HTTP port.
+    sitemapOrigin ??= url.origin;
+    if (
+      (url.origin !== localOrigin && url.protocol !== "https:") ||
+      url.origin !== sitemapOrigin ||
+      url.search ||
+      url.hash
+    ) {
+      throw new Error(`sitemap contains a non-public URL: ${location}`);
+    }
+    paths.add(url.pathname);
+  }
+  if (!paths.has("/")) throw new Error("sitemap must include the home page");
+  return ["/", ...[...paths].filter((path) => path !== "/").sort()];
+}
+
+function formatKiB(bytes) {
+  return `${(bytes / 1024).toFixed(1)} KiB`;
+}
+
+function routeSourceMatchesPath(source, path) {
+  const match = String(source).match(/\/routes\/(.+?)\.[cm]?[jt]sx?(?:\?|$)/);
+  if (!match) return false;
+  const route = match[1];
+  if (route === "__root") return true;
+  const segments = route === "index" ? [] : route.split(/[/.]/);
+  const pathname = path.split("/").filter(Boolean);
+  return (
+    segments.length <= pathname.length &&
+    segments.every((segment, index) => segment.startsWith("$") || segment === pathname[index])
+  );
+}
+
+export function startupJavaScriptVerdict(
+  requests,
+  bundle,
+  budgetBytes = STARTUP_CLIENT_BUDGET_BYTES,
+  path = "/",
+) {
+  const routeFiles = new Map(
+    (bundle?.routeChunks ?? []).map((chunk) => [chunk.file, chunk.source]),
+  );
+  const eagerFiles = new Set((bundle?.eagerChunks ?? []).map((chunk) => chunk.file));
+  const javascript = [...(requests ?? [])]
+    .map((request) => ({
+      file: String(request.file ?? "").replace(/^\/+/, ""),
+      bytes: Number(request.bytes) || 0,
+    }))
+    .filter((request) => request.file.endsWith(".js"))
+    .sort((a, b) => a.file.localeCompare(b.file));
+  const bytes = javascript.reduce((total, request) => total + request.bytes, 0);
+  const unexpectedLazyRoutes = javascript
+    .filter((request) => routeFiles.has(request.file) && !eagerFiles.has(request.file))
+    .map((request) => ({ ...request, source: routeFiles.get(request.file) }))
+    .filter(({ source }) => !routeSourceMatchesPath(source, path));
+  const failures = [];
+  if (bytes > budgetBytes) {
+    failures.push(
+      `${path}: startup JavaScript ${formatKiB(bytes)} exceeds ${formatKiB(budgetBytes)} budget`,
+    );
+  }
+  if (unexpectedLazyRoutes.length > 0) {
+    failures.push(
+      `${path}: unexpected lazy route JavaScript requested on initial navigation: ${unexpectedLazyRoutes
+        .map(({ source, file }) => `${source} (${file})`)
+        .join(", ")}`,
+    );
+  }
+  return { requests: javascript, bytes, budgetBytes, unexpectedLazyRoutes, failures };
 }
 
 const TRIVIAL_LEN_DELTA = 20;
@@ -117,12 +197,18 @@ export function baselineComparison(current, rawText) {
   }
   return compareToBaseline(current, baseline);
 }
-export function exitCodeFor(viewports) {
+export function exitCodeFor(viewports, startupJavaScript, routes = {}) {
   const list = Object.values(viewports ?? {});
   if (list.length === 0) return 1;
-  if (list.some((v) => (v.status ?? 0) >= 400 || (v.status ?? 0) === 0)) return 1;
-  if (list.some((v) => (v.consoleErrors?.length ?? 0) > 0 || (v.pageErrors?.length ?? 0) > 0)) {
+  const all = [...list, ...Object.values(routes)];
+  if (all.some((v) => (v.status ?? 0) >= 400 || (v.status ?? 0) === 0)) return 1;
+  if (all.some((v) => (v.consoleErrors?.length ?? 0) > 0 || (v.pageErrors?.length ?? 0) > 0)) {
     return 2;
   }
+  if (
+    (startupJavaScript?.failures?.length ?? 0) > 0 ||
+    Object.values(routes).some((route) => (route.startupJavaScript?.failures?.length ?? 0) > 0)
+  )
+    return 3;
   return 0;
 }

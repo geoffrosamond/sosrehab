@@ -1,5 +1,29 @@
 @import "tailwindcss";
 
+@font-face {
+  font-family: "Fraunces";
+  font-style: normal;
+  font-weight: 460 640;
+  font-display: swap;
+  src: url("/fonts/fraunces-latin.woff2") format("woff2");
+}
+
+@font-face {
+  font-family: "Source Sans 3";
+  font-style: normal;
+  font-weight: 400 600;
+  font-display: swap;
+  src: url("/fonts/source-sans-3-latin.woff2") format("woff2");
+}
+
+@font-face {
+  font-family: "Source Sans 3";
+  font-style: italic;
+  font-weight: 400;
+  font-display: swap;
+  src: url("/fonts/source-sans-3-italic-latin.woff2") format("woff2");
+}
+
 @theme {
   --color-bg: #f3eee4;
   --color-bg-warm: #e8e0d2;
@@ -7,7 +31,6 @@
   --color-ink: #1a221c;
   --color-ink-soft: #2c362f;
   --color-muted: #5d675f;
-  --color-faint: #8a9288;
   --color-line: #d4cdc0;
   --color-teal: #2a6b58;
   --color-teal-deep: #1d4d40;

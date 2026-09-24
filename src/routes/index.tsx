@@ -1,17 +1,28 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { ArrowRight } from "lucide-react";
 import { SiteLayout } from "@/components/site/layout";
+import { ResponsiveImage } from "@/components/site/responsive-image";
 import { Button } from "@/components/ui/button";
 import { services, site, team } from "@/lib/site";
+import { pageHead } from "@/lib/site-metadata";
 
-export const Route = createFileRoute("/")({ component: Home });
+export const Route = createFileRoute("/")({
+  head: () => pageHead(
+    "Sydney Occupational Services",
+    "SIRA-accredited workplace rehabilitation in NSW. Assessments, return to work, ergonomics and training across Greater Sydney, Hunter and Wollongong.",
+    "/",
+  ),
+  component: Home,
+});
 
 function Home() {
   return (
     <SiteLayout>
       <section className="relative isolate overflow-hidden bg-hero text-cream">
-        <img
+        <ResponsiveImage
           src="/images/hero.jpg"
+          sizes="100vw"
+          priority
           alt="Occupational therapist meeting a worker to plan a return to work"
           className="absolute inset-0 size-full object-cover opacity-45"
         />
@@ -22,7 +33,7 @@ function Home() {
               SIRA-accredited · NSW workers compensation
             </p>
             <h1 className="mt-5 font-display text-4xl tracking-tight sm:text-6xl">
-              We know work rehab.
+              Workplace rehabilitation services in NSW.
             </h1>
             <p className="mt-6 max-w-xl text-lg leading-relaxed text-cream/80">
               Sydney Occupational Services returns injured workers to durable
@@ -111,8 +122,9 @@ function Home() {
                 className="group overflow-hidden rounded-xl border border-line bg-surface shadow-soft"
               >
                 <div className="aspect-4/3 overflow-hidden">
-                  <img
+                  <ResponsiveImage
                     src={s.image}
+                    sizes="(min-width: 1024px) 260px, (min-width: 640px) 50vw, 100vw"
                     alt=""
                     className="size-full object-cover transition-transform duration-300 group-hover:scale-[1.03]"
                   />
@@ -152,7 +164,12 @@ function Home() {
               params={{ slug: p.slug }}
               className="overflow-hidden rounded-xl border border-line bg-surface"
             >
-              <img src={p.image} alt={p.name} className="aspect-3/4 w-full object-cover object-top" />
+              <ResponsiveImage
+                src={p.image}
+                sizes="(min-width: 1024px) 260px, 50vw"
+                alt={p.name}
+                className="aspect-3/4 w-full object-cover object-top"
+              />
               <div className="p-4">
                 <p className="font-display text-lg">{p.name}</p>
                 <p className="text-sm text-muted">{p.role.split(",")[0]}</p>
@@ -163,8 +180,9 @@ function Home() {
       </section>
 
       <section className="relative overflow-hidden bg-hero text-cream">
-        <img
+        <ResponsiveImage
           src="/images/parramatta.jpg"
+          sizes="100vw"
           alt="Parramatta Square office precinct"
           className="absolute inset-0 size-full object-cover opacity-30"
         />

@@ -3,8 +3,16 @@ import { useState, type FormEvent } from "react";
 import { SiteLayout } from "@/components/site/layout";
 import { Button } from "@/components/ui/button";
 import { site, team } from "@/lib/site";
+import { pageHead } from "@/lib/site-metadata";
 
-export const Route = createFileRoute("/contact")({ component: ContactPage });
+export const Route = createFileRoute("/contact")({
+  head: () => pageHead(
+    "Contact & Enquiries | Sydney Occupational Services",
+    "Contact Sydney Occupational Services for workplace rehabilitation enquiries and referrals. Speak with our directors in Parramatta, serving Greater Sydney and NSW.",
+    "/contact",
+  ),
+  component: ContactPage,
+});
 
 function ContactPage() {
   const [sent, setSent] = useState(false);
@@ -20,7 +28,7 @@ function ContactPage() {
         <div className="lg:col-span-5">
           <p className="text-xs uppercase tracking-[0.18em] text-teal">Contact</p>
           <h1 className="mt-3 text-4xl sm:text-5xl">
-            Working with you for a better outcome.
+            Contact Sydney Occupational Services for referrals and enquiries.
           </h1>
           <p className="mt-5 text-muted leading-relaxed">
             General enquiries and referrals land with the directors. If the
@@ -29,7 +37,7 @@ function ContactPage() {
 
           <dl className="mt-10 space-y-6 text-sm">
             <div>
-              <dt className="text-xs uppercase tracking-[0.16em] text-faint">
+              <dt className="text-xs uppercase tracking-[0.16em] text-muted">
                 Phone
               </dt>
               <dd className="mt-1">
@@ -40,7 +48,7 @@ function ContactPage() {
               </dd>
             </div>
             <div>
-              <dt className="text-xs uppercase tracking-[0.16em] text-faint">
+              <dt className="text-xs uppercase tracking-[0.16em] text-muted">
                 Email
               </dt>
               <dd className="mt-1">
@@ -50,7 +58,7 @@ function ContactPage() {
               </dd>
             </div>
             <div>
-              <dt className="text-xs uppercase tracking-[0.16em] text-faint">
+              <dt className="text-xs uppercase tracking-[0.16em] text-muted">
                 Head office
               </dt>
               <dd className="mt-1 text-ink-soft">

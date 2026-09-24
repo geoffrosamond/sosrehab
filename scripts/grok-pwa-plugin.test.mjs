@@ -20,6 +20,7 @@ import {
 import { renderInstallPage } from "./grok-pwa-plugin.mjs";
 
 const TEMPLATE_ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
+const ISOLATED_WORKSPACE = mkdtempSync(join(tmpdir(), "grok-pwa-workspace-"));
 
 test("injects before </head>", () => {
   const out = injectGrokPwaHead("<html><head><title>x</title></head><body></body></html>");
@@ -105,7 +106,7 @@ test("does not duplicate x:creator tags", () => {
 test("platform chrome overwrites share-card metas and always sets og:title", () => {
   const html =
     '<html><head><title>Hello World</title><meta property="og:title" content="Old"><meta name="twitter:card" content="summary"></head></html>';
-  const out = injectGrokPwaHead(html, { appName: "Wild Race" });
+  const out = injectGrokPwaHead(html, { appName: "Wild Race", cwd: ISOLATED_WORKSPACE });
   assert.match(out, /name="twitter:card" content="summary_large_image"/);
   assert.match(out, /property="og:title" content="Hello World"/);
   assert.doesNotMatch(out, /content="Old"/);
@@ -121,6 +122,38 @@ test("does not duplicate twitter:card or og:title", () => {
   assert.equal(once, twice);
   assert.equal(twice.split('name="twitter:card"').length - 1, 1);
   assert.equal(twice.split('property="og:title"').length - 1, 1);
+});
+
+test("route-specific SSR metadata produces matching social tags and a single canonical URL", () => {
+  const html = '<html><head><title>Contact &amp; Enquiries | Sydney Occupational Services</title><meta name="description" content="Contact the NSW team &amp; send a referral."><meta property="og:title" content="Generic"></head></html>';
+  const ctx = {
+    host: "sos.grok.me",
+    pathname: "/contact/?tracking=1",
+    site: { title: "Sydney Occupational Services", description: "Generic description", type: "website", card: "custom" },
+    cwd: ISOLATED_WORKSPACE,
+  };
+  const once = injectGrokPwaHead(html, ctx);
+  assert.match(once, /property="og:title" content="Contact &amp; Enquiries \| Sydney Occupational Services"/);
+  assert.match(once, /name="twitter:title" content="Contact &amp; Enquiries \| Sydney Occupational Services"/);
+  assert.match(once, /property="og:description" content="Contact the NSW team &amp; send a referral\."/);
+  assert.match(once, /name="twitter:description" content="Contact the NSW team &amp; send a referral\."/);
+  assert.match(once, /property="og:type" content="website"/);
+  assert.match(once, /property="og:site_name" content="Sydney Occupational Services"/);
+  assert.match(once, /property="og:url" content="https:\/\/sos\.grok\.me\/contact"/);
+  assert.match(once, /rel="canonical" href="https:\/\/sos\.grok\.me\/contact"/);
+  assert.match(once, /property="og:image" content="https:\/\/sos\.grok\.me\/og\.jpg"/);
+  assert.equal(injectGrokPwaHead(once, ctx), once);
+});
+
+test("detail social URLs use resolved slugs and do not canonicalize non-public pages", () => {
+  const ctx = { host: "sos.grok.me", site: { title: "SOS", type: "website" }, cwd: ISOLATED_WORKSPACE };
+  const detail = injectGrokPwaHead("<html><head><title>Workplace assessment</title></head></html>", {
+    ...ctx, pathname: "/services/workplace-assessment/",
+  });
+  assert.match(detail, /property="og:url" content="https:\/\/sos\.grok\.me\/services\/workplace-assessment"/);
+  assert.match(detail, /rel="canonical" href="https:\/\/sos\.grok\.me\/services\/workplace-assessment"/);
+  const missing = injectGrokPwaHead("<html><head></head></html>", { ...ctx, pathname: "/account" });
+  assert.doesNotMatch(missing, /rel="canonical"|property="og:url"/);
 });
 
 test("a baked site.image is treated as a custom card", () => {
@@ -246,6 +279,7 @@ test("site title Grok App is a real name, not a sentinel", () => {
 test("published grok.me slug is still a title fallback", () => {
   const out = injectGrokPwaHead("<html><head></head></html>", {
     host: "wild-race.grok.me",
+    cwd: ISOLATED_WORKSPACE,
   });
   assert.match(out, /property="og:title" content="Wild Race"/);
 });
@@ -307,6 +341,7 @@ test("emits og:image for a public host and prefers a custom card", () => {
     appName: "Wild Race",
     host: "wild-race.grok.me",
     site: { title: "Wild Race" },
+    cwd: ISOLATED_WORKSPACE,
   });
   assert.match(
     placeholder,
@@ -327,6 +362,7 @@ test("placeholder og:image appends site.color when it is 6-digit hex", () => {
   const themed = injectGrokPwaHead("<html><head></head></html>", {
     host: "wild-race.grok.me",
     site: { title: "Wild Race", color: "#FF4D2E" },
+    cwd: ISOLATED_WORKSPACE,
   });
   assert.match(
     themed,
@@ -336,6 +372,7 @@ test("placeholder og:image appends site.color when it is 6-digit hex", () => {
   const invalid = injectGrokPwaHead("<html><head></head></html>", {
     host: "wild-race.grok.me",
     site: { title: "Wild Race", color: "red" },
+    cwd: ISOLATED_WORKSPACE,
   });
   assert.doesNotMatch(invalid, /color=/);
 
@@ -349,6 +386,7 @@ test("placeholder og:image appends site.color when it is 6-digit hex", () => {
 test("document title entities are not double-escaped on og:title", () => {
   const out = injectGrokPwaHead(
     "<html><head><title>Cats &amp; Dogs</title></head></html>",
+    { cwd: ISOLATED_WORKSPACE },
   );
   assert.match(out, /property="og:title" content="Cats &amp; Dogs"/);
   assert.doesNotMatch(out, /Cats &amp;amp; Dogs/);
@@ -363,14 +401,17 @@ test("site.json title wins over the host slug", () => {
 });
 
 test("injects into documents with no head element", () => {
-  const out = injectGrokPwaHead("<html><body>hi</body></html>", { appName: "Solo" });
+  const out = injectGrokPwaHead("<html><body>hi</body></html>", {
+    appName: "Solo",
+    cwd: ISOLATED_WORKSPACE,
+  });
   assert.match(out, /<head>/);
   assert.match(out, /property="og:title" content="Solo"/);
   assert.match(out, /<\/head>/);
 });
 
 test("streaming injector matches </HEAD> case-insensitively", () => {
-  const injector = createHeadInjector({ appName: "Wild Race" });
+  const injector = createHeadInjector({ appName: "Wild Race", cwd: ISOLATED_WORKSPACE });
   const chunks = [
     ...injector.push("<html><HEAD><title>x</title></HE"),
     ...injector.push("AD><body>hello</body></html>"),
@@ -395,7 +436,10 @@ test("is idempotent", () => {
 });
 
 test("uses the app name in the injected title tag", () => {
-  const out = injectGrokPwaHead("<html><head></head></html>", { appName: "Wild Race" });
+  const out = injectGrokPwaHead("<html><head></head></html>", {
+    appName: "Wild Race",
+    cwd: ISOLATED_WORKSPACE,
+  });
   assert.match(out, /apple-mobile-web-app-title" content="Wild Race"/);
 });
 

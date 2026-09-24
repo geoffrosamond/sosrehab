@@ -104,6 +104,7 @@ function wrapHtmlResponses(middlewares, cwd) {
     const host = requestHost(req);
     const injector = createHeadInjector({
       host,
+      pathname: pathOnly,
       cwd,
     });
     let mode = null; // null = undecided, "inject" | "passthrough"

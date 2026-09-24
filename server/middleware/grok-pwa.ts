@@ -16,6 +16,7 @@
  */
 import installPageTemplate from "../../scripts/install-page.html?raw";
 import { grokOgIdentity } from "virtual:grok-og-identity";
+import { renderSitemap } from "../../src/lib/sitemap";
 import {
   acceptsHtml,
   createHeadInjector,
@@ -23,6 +24,7 @@ import {
   isInstallQuery,
   renderInstallPageHtml,
   renderWebManifest,
+  resolvePublicHost,
 } from "../../scripts/grok-pwa-shared.mjs";
 
 interface GrokPwaEvent {
@@ -36,9 +38,10 @@ function requestHost(event: GrokPwaEvent): string {
   );
 }
 
-function injectHeadStreaming(response: Response, host: string): Response {
+function injectHeadStreaming(response: Response, host: string, pathname: string): Response {
   const injector = createHeadInjector({
     host,
+    pathname,
     site: grokOgIdentity.site,
   });
   const transformed = response.body!.pipeThrough(
@@ -65,9 +68,20 @@ export default async function grokPwaMiddleware(
   next: () => unknown | Promise<unknown>,
 ): Promise<unknown> {
   const method = (event.req.method ?? "GET").toUpperCase();
-  if (method !== "GET") return next();
+  if (method !== "GET" && method !== "HEAD") return next();
 
   const path = event.url.pathname;
+  if (path === "/sitemap.xml") {
+    const host = resolvePublicHost(requestHost(event));
+    if (!host) return new Response("Public hostname unavailable", { status: 503 });
+    return new Response(method === "HEAD" ? null : renderSitemap(host), {
+      headers: {
+        "content-type": "application/xml; charset=utf-8",
+        "cache-control": "public, max-age=3600",
+      },
+    });
+  }
+  if (method !== "GET") return next();
   const urlWithQuery = path + event.url.search;
 
   if (path === "/__grok/manifest.webmanifest" || path === "/__grok/manifest.json") {
@@ -105,7 +119,7 @@ export default async function grokPwaMiddleware(
     String(result.headers.get("content-type") ?? "").includes("text/html") &&
     !result.headers.get("content-encoding")
   ) {
-    return injectHeadStreaming(result, requestHost(event));
+    return injectHeadStreaming(result, requestHost(event), path);
   }
   return result;
 }

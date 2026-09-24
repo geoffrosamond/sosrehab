@@ -90,8 +90,9 @@ test("only a divergence warns the smoke verdict", () => {
   }
 });
 
-test("the build side resolves the template's shipped app-env", () => {
-  assert.equal(buildAuthEnabled(projectRoot(), {}), false);
+test("the build side uses the auth-on default when app-env is absent", () => {
+  const rootWithoutAppEnv = mkdtempSync(join(tmpdir(), "auth-invariant-empty-"));
+  assert.equal(buildAuthEnabled(rootWithoutAppEnv, {}), true);
   assert.equal(buildAuthEnabled(projectRoot(), { VITE_AUTH_ENABLED: "true" }), true);
 });
 

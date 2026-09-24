@@ -1,8 +1,11 @@
 import { useState, useSyncExternalStore, type ReactNode } from "react";
 import { Navigate } from "@tanstack/react-router";
+import { isSigningOut, subscribeToAuthTransition } from "./auth-transition-store";
 import { GROK_PROVIDERS, authEnabled, signIn, signOut } from "./client";
 import { hasGateSessionMarker } from "./gate-session-marker";
 import { resolveSignInGateState } from "./sign-in-gate";
+import { resolveRouteGuardState } from "./route-guard-state";
+import { createSessionRetry } from "./session-retry";
 import { useCurrentUser, useCurrentUserState } from "./use-current-user";
 
 const subscribeToNothing = () => () => {};
@@ -15,7 +18,8 @@ const noGateSessionOnServer = () => false;
  * live preview too, which does real sign-in. The shared dev user appears only
  * when auth is disabled (`VITE_AUTH_ENABLED=false`, the shipped default).
  * While the session is still resolving, gates that care about signed-out state
- * render nothing so there's no signed-out flash on hard reload.
+ * render nothing so there's no signed-out flash on hard reload. A failed
+ * session request renders recovery controls instead of treating it as signed out.
  */
 
 /** Where `RedirectToSignIn` sends signed-out visitors. Create this route. */
@@ -23,8 +27,8 @@ export const SIGN_IN_PATH = "/login";
 
 /** Render children only when a user is present (real session, or the disabled-auth dev user). */
 export function SignedIn({ children }: { children: ReactNode }) {
-  const { user } = useCurrentUserState();
-  return user ? <>{children}</> : null;
+  const state = resolveRouteGuardState(useCurrentUserState());
+  return state === "signed_in" ? <>{children}</> : null;
 }
 
 /**
@@ -32,9 +36,8 @@ export function SignedIn({ children }: { children: ReactNode }) {
  * cleared and there is no user). Hidden while the session is still loading.
  */
 export function SignedOut({ children }: { children: ReactNode }) {
-  const { user, isPending } = useCurrentUserState();
-  if (isPending || user) return null;
-  return <>{children}</>;
+  const state = resolveRouteGuardState(useCurrentUserState());
+  return state === "signed_out" ? <>{children}</> : null;
 }
 
 /**
@@ -56,13 +59,36 @@ export function SignInGate({
   children: ReactNode;
   fallback?: ReactNode;
 }) {
-  const { user, isPending } = useCurrentUserState();
-  const state = resolveSignInGateState({ isPending, hasUser: user !== null });
+  const { user, isPending, error, retry } = useCurrentUserState();
+  const state = resolveSignInGateState({
+    isPending,
+    hasError: error !== null,
+    hasUser: user !== null,
+  });
   if (state === "pending") return null;
+  if (state === "error") return <SessionRecovery onRetry={retry} />;
   if (state === "signed_in") return <>{children}</>;
   return <>{fallback ?? <SignInButtons />}</>;
 }
 
+export function SessionRecovery({ onRetry }: { onRetry: () => unknown }) {
+  const [retrying, setRetrying] = useState(false);
+  const [runRetry] = useState(() => createSessionRetry(setRetrying));
+  return (
+    <div role="alert" className="flex w-full max-w-sm flex-col gap-3">
+      <p>We couldn&apos;t check your session. Try again or sign in.</p>
+      <button
+        type="button"
+        onClick={() => void runRetry(onRetry)}
+        disabled={retrying}
+        className="w-full cursor-pointer rounded-md border border-neutral-300 px-4 py-2 hover:bg-neutral-100 disabled:cursor-wait disabled:opacity-60 dark:border-neutral-700 dark:hover:bg-neutral-900"
+      >
+        {retrying ? "Checking session…" : "Try again"}
+      </button>
+      <SignInButtons />
+    </div>
+  );
+}
 export function SignInButtons() {
   return (
     <div className="flex w-full max-w-sm flex-col gap-2">
@@ -89,9 +115,11 @@ export function SignInButtons() {
  */
 export function UserButton() {
   const user = useCurrentUser();
-  // Sign-out can take a moment (and can fail when deployed), so the control
-  // shows it is working and cannot be fired twice.
-  const [signingOut, setSigningOut] = useState(false);
+  const signingOut = useSyncExternalStore(
+    subscribeToAuthTransition,
+    isSigningOut,
+    noGateSessionOnServer,
+  );
   const gateSession = useSyncExternalStore(
     subscribeToNothing,
     hasGateSessionMarker,
@@ -118,9 +146,9 @@ export function UserButton() {
           type="button"
           disabled={signingOut}
           onClick={() => {
-            setSigningOut(true);
-            // Success navigates away; on failure re-enable so it can be retried.
-            void signOut().catch(() => setSigningOut(false));
+            // The shared transition disables every mounted account control;
+            // on failure it restores them so the visitor can retry.
+            void signOut().catch(() => {});
           }}
           className="cursor-pointer text-sm underline-offset-4 opacity-70 hover:underline disabled:cursor-wait disabled:no-underline"
         >

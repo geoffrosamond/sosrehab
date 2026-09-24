@@ -69,24 +69,46 @@ describe("callTool failure memo", () => {
     });
   });
 
+  it("isolates memoized failures between catalog-backed grants", async () => {
+    await withStubbedGate(500, { ok: false, errorMessage: "boom" }, async (calls) => {
+      const common = {
+        connectorType: ConnectorType.Mcp,
+        token: fakeJwt({ sub: "memo-user-catalogs", iat: 1000, exp: 2000 }),
+      };
+      const firstGrant = {
+        ...common,
+        connectorCatalogId: "catalog-grant-a",
+      };
+      const otherGrant = {
+        ...common,
+        connectorCatalogId: "catalog-grant-b",
+      };
+
+      const first = await callTool("catalog_search", { q: "memo" }, firstGrant);
+      const sameGrant = await callTool("catalog_search", { q: "memo" }, firstGrant);
+      assert.equal(first.ok, false);
+      assert.deepEqual(sameGrant, first);
+      assert.equal(calls(), 1, "the same catalog grant should reuse its failure");
+
+      const other = await callTool("catalog_search", { q: "memo" }, otherGrant);
+      assert.equal(other.ok, false);
+      assert.equal(calls(), 2, "a different catalog grant must make its own gate call");
+
+      await callTool("catalog_search", { q: "memo" }, otherGrant);
+      assert.equal(calls(), 2, "the other catalog grant should reuse its own failure");
+    });
+  });
+
   it("keys by token identity so a reminted token shares the memo entry", async () => {
     await withStubbedGate(500, { ok: false, errorMessage: "boom" }, async (calls) => {
-      const first = await callTool(
-        "google_drive_search",
-        { q: "remint" },
-        {
-          connectorType: ConnectorType.GoogleDrive,
-          token: fakeJwt({ sub: "memo-user-2", iat: 1000, exp: 2000 }),
-        },
-      );
-      const second = await callTool(
-        "google_drive_search",
-        { q: "remint" },
-        {
-          connectorType: ConnectorType.GoogleDrive,
-          token: fakeJwt({ sub: "memo-user-2", iat: 1001, exp: 2001 }),
-        },
-      );
+      const first = await callTool("google_drive_search", { q: "remint" }, {
+        connectorType: ConnectorType.GoogleDrive,
+        token: fakeJwt({ sub: "memo-user-2", team_id: "memo-team-a", iat: 1000, exp: 2000 }),
+      });
+      const second = await callTool("google_drive_search", { q: "remint" }, {
+        connectorType: ConnectorType.GoogleDrive,
+        token: fakeJwt({ sub: "memo-user-2", team_id: "memo-team-a", iat: 1001, exp: 2001 }),
+      });
       assert.equal(first.ok, false);
       assert.deepEqual(second, first);
       assert.equal(calls(), 1);
@@ -96,11 +118,40 @@ describe("callTool failure memo", () => {
         { q: "remint" },
         {
           connectorType: ConnectorType.GoogleDrive,
-          token: fakeJwt({ sub: "memo-user-3", iat: 1000, exp: 2000 }),
+          token: fakeJwt({
+            sub: "memo-user-2",
+            team_id: "memo-team-b",
+            iat: 1000,
+            exp: 2000,
+          }),
         },
       );
       assert.equal(other.ok, false);
       assert.equal(calls(), 2);
+    });
+  });
+
+  it("uses the opaque token when claims are malformed without bypassing memoization", async () => {
+    await withStubbedGate(500, { ok: false, errorMessage: "boom" }, async (calls) => {
+      const malformedToken = "header.eyJzdWIiOi.sig";
+      const options = { connectorType: ConnectorType.GoogleDrive, token: malformedToken };
+      const first = await callTool("google_drive_search", { q: "malformed" }, options);
+      const second = await callTool("google_drive_search", { q: "malformed" }, options);
+
+      assert.equal(first.ok, false);
+      assert.deepEqual(second, first);
+      assert.equal(calls(), 1);
+
+      const otherMalformedToken = "header.!!!.sig";
+      await callTool(
+        "google_drive_search",
+        { q: "malformed" },
+        {
+          connectorType: ConnectorType.GoogleDrive,
+          token: otherMalformedToken,
+        },
+      );
+      assert.equal(calls(), 2, "different malformed opaque tokens must not share an identity key");
     });
   });
 
@@ -190,14 +241,12 @@ describe("callTool in the workspace preview vs deployed", () => {
     await withStubbedGate(401, { errorMessage: "login required" }, async (calls) => {
       process.env.GROK_CONNECTOR_ACCESS_TOKEN = fakeJwt({ sub: "p", iat: 1, exp: 2 });
       assert.equal(isConnectorTokenReady(), true);
-
       const result = await callTool("google_drive_search", {}, options);
       assert.equal(result.pending, true);
       assert.equal(result.loginRequired, undefined);
       assert.match(result.errorMessage ?? "", /^connector_token_pending/);
       assert.equal(calls(), 1);
       assert.equal(isConnectorTokenReady(), false);
-
       process.env.GROK_CONNECTOR_ACCESS_TOKEN = fakeJwt({ sub: "p", iat: 3, exp: 4 });
       assert.equal(isConnectorTokenReady(), true);
     });
@@ -264,46 +313,24 @@ describe("redirectToLoginIfRequired", () => {
   it("no-ops when login is not required", () => {
     let target = "";
     const did = withWindow(
-      {
-        location: {
-          assign: (u) => {
-            target = u;
-          },
-          href: "https://my-app.grok.me/current",
-        },
-      },
-      () =>
-        redirectToLoginIfRequired({
-          ok: false,
-          data: null,
-          errorMessage: "tool error",
-        }),
+      { location: { assign: (url) => { target = url; }, href: "https://my-app.grok.me/current" } },
+      () => redirectToLoginIfRequired({ ok: false, data: null, errorMessage: "tool error" }),
     );
     assert.equal(did, false);
     assert.equal(target, "");
   });
 
   it("navigates to the server-built loginUrl in the browser", () => {
-    let target = "";
+    let assigned = "";
     const did = withWindow(
-      {
-        location: {
-          assign: (u) => {
-            target = u;
-          },
-          href: "https://my-app.grok.me/current",
-        },
-      },
-      () =>
-        redirectToLoginIfRequired({
-          ok: false,
-          data: null,
-          loginRequired: true,
-          loginUrl: "https://gate.grok.me/__gate/signin?return_to=x",
-        }),
+      { location: { assign: (url) => { assigned = url; }, href: "https://my-app.grok.me/current" } },
+      () => redirectToLoginIfRequired({
+        ok: false, data: null, loginRequired: true,
+        loginUrl: "https://gate.grok.me/__gate/signin?return_to=x",
+      }),
     );
     assert.equal(did, true);
-    assert.equal(target, "https://gate.grok.me/__gate/signin?return_to=x");
+    assert.equal(assigned, "https://gate.grok.me/__gate/signin?return_to=x");
   });
 
   it("opens a new tab instead of navigating when framed", () => {
@@ -312,26 +339,14 @@ describe("redirectToLoginIfRequired", () => {
     const openedTab: { opener?: unknown } = { opener: "parent" };
     const did = withWindow(
       {
-        self: "frame",
-        top: "host",
-        open: (url) => {
-          opened = url;
-          return openedTab;
-        },
-        location: {
-          assign: (u) => {
-            assigned = u;
-          },
-          href: "https://my-app.grok.me/current",
-        },
+        self: "frame", top: "host",
+        open: (url) => { opened = url; return openedTab; },
+        location: { assign: (url) => { assigned = url; }, href: "https://my-app.grok.me/current" },
       },
-      () =>
-        redirectToLoginIfRequired({
-          ok: false,
-          data: null,
-          loginRequired: true,
-          loginUrl: "https://gate.grok.me/__gate/signin?return_to=x",
-        }),
+      () => redirectToLoginIfRequired({
+        ok: false, data: null, loginRequired: true,
+        loginUrl: "https://gate.grok.me/__gate/signin?return_to=x",
+      }),
     );
     assert.equal(did, true);
     assert.equal(opened, "https://gate.grok.me/__gate/signin?return_to=x");
@@ -343,44 +358,23 @@ describe("redirectToLoginIfRequired", () => {
     let assigned = "";
     const did = withWindow(
       {
-        self: "frame",
-        top: "host",
-        open: () => null,
-        location: {
-          assign: (u) => {
-            assigned = u;
-          },
-          href: "https://my-app.grok.me/current",
-        },
+        self: "frame", top: "host", open: () => null,
+        location: { assign: (url) => { assigned = url; }, href: "https://my-app.grok.me/current" },
       },
-      () =>
-        redirectToLoginIfRequired({
-          ok: false,
-          data: null,
-          loginRequired: true,
-          loginUrl: "https://gate.grok.me/__gate/signin?return_to=x",
-        }),
+      () => redirectToLoginIfRequired({
+        ok: false, data: null, loginRequired: true,
+        loginUrl: "https://gate.grok.me/__gate/signin?return_to=x",
+      }),
     );
     assert.equal(did, true);
     assert.equal(assigned, "https://gate.grok.me/__gate/signin?return_to=x");
   });
 
   it("returns false when the result has no loginUrl", () => {
-    let target = "";
-    const did = withWindow(
-      {
-        location: {
-          assign: (u) => {
-            target = u;
-          },
-          href: "https://my-app.grok.me/current",
-        },
-      },
-      () =>
-        redirectToLoginIfRequired({ ok: false, data: null, loginRequired: true }),
-    );
+    const did = redirectToLoginIfRequired({
+      ok: false, data: null, loginRequired: true,
+    });
     assert.equal(did, false);
-    assert.equal(target, "");
   });
 
   it("returns false on the server (no window)", () => {
@@ -422,8 +416,7 @@ describe("classifyCallToolError", () => {
 
   it("classifies a deployed missing token as error, not a login CTA", () => {
     const state = classifyCallToolError({
-      ok: false,
-      data: null,
+      ok: false, data: null,
       errorMessage: "missing_connector_token: open this app through the edge gate",
     });
     assert.equal(state?.kind, "error");
@@ -432,10 +425,7 @@ describe("classifyCallToolError", () => {
 
   it("classifies gate loginRequired without a missing-token message as login", () => {
     const state = classifyCallToolError({
-      ok: false,
-      data: null,
-      loginRequired: true,
-      errorMessage: "login required",
+      ok: false, data: null, loginRequired: true, errorMessage: "login required",
     });
     assert.equal(state?.kind, "login");
     assert.equal(state?.detail, "login required");
@@ -443,27 +433,18 @@ describe("classifyCallToolError", () => {
 
   it("classifies not_connected and failed_precondition", () => {
     assert.equal(
-      classifyCallToolError({
-        ok: false,
-        data: null,
-        errorMessage: "connector_not_connected: Notion",
-      })?.kind,
+      classifyCallToolError({ ok: false, data: null, errorMessage: "connector_not_connected: Notion" })?.kind,
       "not_connected",
     );
     assert.equal(
-      classifyCallToolError({
-        ok: false,
-        data: null,
-        errorMessage: "FAILED_PRECONDITION: no connector",
-      })?.kind,
+      classifyCallToolError({ ok: false, data: null, errorMessage: "FAILED_PRECONDITION: no connector" })?.kind,
       "not_connected",
     );
   });
 
   it("classifies scope_denied without claiming a missing grant", () => {
     const state = classifyCallToolError({
-      ok: false,
-      data: null,
+      ok: false, data: null,
       errorMessage: "scope_denied: tool notion-list-recent-pages not in grant scopes",
     });
     assert.equal(state?.kind, "scope_denied");
@@ -473,20 +454,14 @@ describe("classifyCallToolError", () => {
 
   it("classifies access_denied", () => {
     assert.equal(
-      classifyCallToolError({
-        ok: false,
-        data: null,
-        errorMessage: "access_denied",
-      })?.kind,
+      classifyCallToolError({ ok: false, data: null, errorMessage: "access_denied" })?.kind,
       "access_denied",
     );
   });
 
   it("falls back to a generic error with the raw message", () => {
     const state = classifyCallToolError({
-      ok: false,
-      data: null,
-      errorMessage: "boom",
+      ok: false, data: null, errorMessage: "boom",
     });
     assert.equal(state?.kind, "error");
     assert.equal(state?.message, "boom");

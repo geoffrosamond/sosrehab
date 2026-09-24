@@ -1,0 +1,2 @@
+- [Imported template contracts](imported-template-contracts.md) — keep host-only `.grok` prose checks out of repository tests and isolate generic helpers from app metadata.
+- [Release preview port cleanup](release-preview-port-cleanup.md) — local release smoke can leave a preview port in workspace configuration; check the diff before publishing.
