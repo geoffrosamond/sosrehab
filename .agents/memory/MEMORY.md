@@ -1,2 +1,3 @@
 - [Imported template contracts](imported-template-contracts.md) — keep host-only `.grok` prose checks out of repository tests and isolate generic helpers from app metadata.
 - [Release preview port cleanup](release-preview-port-cleanup.md) — local release smoke can leave a preview port in workspace configuration; check the diff before publishing.
+- [GitHub push fallback](github-push-fallback.md) — when command-line Git authentication fails, the connected GitHub API can publish a matching tree without force-pushing.
