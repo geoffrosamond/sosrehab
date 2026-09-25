@@ -18,6 +18,12 @@ export function checkDeploymentContract(root = projectRoot()) {
   if (!/deploymentTarget\s*=\s*"cloudrun"/.test(replitConfig)) {
     errors.push('.replit must set deploymentTarget = "cloudrun"');
   }
+  if (!/build\s*=.*npm.*run.*build/s.test(replitConfig)) {
+    errors.push('.replit deployment must build with "npm run build"');
+  }
+  if (!/run\s*=.*npm.*start/s.test(replitConfig)) {
+    errors.push('.replit deployment must run "npm start"');
+  }
   if (!/preset:\s*"node-server"/.test(viteConfig)) {
     errors.push('Nitro must use the "node-server" preset');
   }

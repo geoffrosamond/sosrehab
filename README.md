@@ -19,12 +19,17 @@ npm run dev
 
 Opens on port 5000 in Replit.
 
-## Import into Replit
+## Deploy on Replit
 
-1. New Replit → **Import from GitHub**
-2. Paste `https://github.com/geoffrosamond/sosrehab`
-3. After import, run `npm install` then `npm run dev` (or press Run)
+Cloud Run does not ship the git tree as a running server. The production app is built on deploy.
 
-The repository is public so Replit can clone it without GitHub auth. The checked-in
+1. Import `https://github.com/geoffrosamond/sosrehab`
+2. Deploy as **Autoscale / Cloud Run** (not Reserved VM, not Static)
+3. Replit reads [`.replit`](.replit):
+   - Build: `npm run build` (Nitro `node-server` → `.output/server/index.mjs`)
+   - Run: `npm start`
+4. The server listens on `0.0.0.0` and Replit’s `PORT`
+
+Development preview stays on port 5000 (`npm run dev`). Do not deploy the dev server. The checked-in
 development setting disables sign-in for the preview; production authentication
 is controlled by the publishing environment.

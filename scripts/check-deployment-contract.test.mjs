@@ -14,9 +14,14 @@ function makeProject({
   start = "node .output/server/index.mjs",
   server = true,
   manifest = true,
+  build = true,
+  run = true,
 } = {}) {
   const root = mkdtempSync(join(tmpdir(), "deployment-contract-"));
-  writeFileSync(join(root, ".replit"), `[deployment]\ndeploymentTarget = "${target}"\n`);
+  const replit = [`[deployment]`, `deploymentTarget = "${target}"`];
+  if (build) replit.push(`build = ["npm", "run", "build"]`);
+  if (run) replit.push(`run = ["npm", "start"]`);
+  writeFileSync(join(root, ".replit"), `${replit.join("\n")}\n`);
   writeFileSync(join(root, "package.json"), JSON.stringify({ scripts: { start } }));
   writeFileSync(join(root, "vite.config.ts"), `nitro({ preset: "${preset}" })`);
   if (server) {
@@ -42,10 +47,15 @@ test("reports every incompatible part of the deployment contract", () => {
       start: "vite preview",
       server: false,
       manifest: false,
+      build: false,
+      run: false,
     }),
   );
-  assert.equal(errors.length, 5);
-  assert.match(errors.join("\n"), /cloudrun.*node-server.*start command.*Node server.*manifest/s);
+  assert.equal(errors.length, 7);
+  assert.match(
+    errors.join("\n"),
+    /cloudrun.*npm run build.*npm start.*node-server.*start command.*Node server.*manifest/s,
+  );
 });
 
 function makeServerProject(source) {

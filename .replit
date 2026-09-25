@@ -1,5 +1,8 @@
 modules = ["web", "bash", "nodejs-22", "python-base-3.13"]
 
+[env]
+PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD = "1"
+
 [nix]
 channel = "stable-25_05"
 packages = ["glib", "nss", "nspr", "atk", "at-spi2-atk", "cups", "dbus", "expat", "libdrm", "mesa", "xorg.libX11", "xorg.libXcomposite", "xorg.libXdamage", "xorg.libXext", "xorg.libXfixes", "xorg.libXrandr", "xorg.libxcb", "libxkbcommon", "pango", "cairo", "alsa-lib", "libgbm"]
@@ -41,3 +44,5 @@ timeoutMs = 120000
 
 [deployment]
 deploymentTarget = "cloudrun"
+build = ["npm", "run", "build"]
+run = ["npm", "start"]
